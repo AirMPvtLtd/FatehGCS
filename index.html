@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <title>AiRM Fateh Drone Programming Interface</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.0/babel.min.js"></script>
+    <script src="https://unpkg.com/react@18.2.0/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs/loader.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -109,8 +109,9 @@
         
         .hologram-container {
             width: 100%;
-            height: 300px;
+            height: 200px;
             position: relative;
+            background: rgba(0, 0, 0, 0.2);
         }
         
         .scrollable-container {
@@ -197,18 +198,69 @@
             font-family: 'Share Tech Mono', monospace;
             font-size: 12px;
         }
+
+        .telemetry-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        .telemetry-table th, .telemetry-table td {
+            border: 1px solid var(--primary);
+            padding: 6px;
+            text-align: center;
+        }
+
+        .telemetry-table th {
+            background: rgba(0, 240, 255, 0.2);
+        }
+
+        .warning-message {
+            background: rgba(255, 62, 127, 0.2);
+            border: 1px solid var(--secondary);
+            border-radius: 4px;
+            padding: 8px;
+            margin: 8px 0;
+            color: var(--secondary);
+            font-size: 12px;
+        }
+
+        .report-card {
+            background: rgba(10, 10, 26, 0.9);
+            border: 1px solid var(--primary);
+            border-radius: 6px;
+            padding: 8px;
+            margin-top: 8px;
+            font-size: 12px;
+        }
+
+        .error-message {
+            background: rgba(255, 62, 127, 0.2);
+            border: 1px solid var(--secondary);
+            border-radius: 4px;
+            padding: 8px;
+            margin: 8px 0;
+            color: var(--secondary);
+            font-size: 12px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
     <div id="root" class="min-h-screen"></div>
 
-    <script type="text/babel">
+    <script type="text/babel" data-presets="react">
         function App() {
             const [status, setStatus] = React.useState('Initializing...');
             const [isSimulating, setIsSimulating] = React.useState(false);
             const [angles, setAngles] = React.useState([0, 0, 0]);
             const [height, setHeight] = React.useState(0);
+            const [motorSpeeds, setMotorSpeeds] = React.useState([0, 0, 0, 0]);
+            const [throttle, setThrottle] = React.useState(0);
             const [simulationError, setSimulationError] = React.useState(null);
+            const [simulationWarnings, setSimulationWarnings] = React.useState([]);
+            const [stabilityReport, setStabilityReport] = React.useState(null);
             const [activeTab, setActiveTab] = React.useState('FATEH-V1');
             const [editorContent, setEditorContent] = React.useState('');
             const [logicInput, setLogicInput] = React.useState('');
@@ -238,7 +290,13 @@
             ]);
             const [userProgress, setUserProgress] = React.useState({});
             const [leaderboard, setLeaderboard] = React.useState([]);
-            const [username, setUsername] = React.useState('');
+            const [profileData, setProfileData] = React.useState({
+                name: '',
+                collegeName: '',
+                email: '',
+                username: '',
+                educationalBackground: ''
+            });
             const [showProfileModal, setShowProfileModal] = React.useState(false);
             const [selectedProfiles, setSelectedProfiles] = React.useState([]);
             const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
@@ -252,6 +310,14 @@
             const [isDeploying, setIsDeploying] = React.useState(false);
             const [connectionStatus, setConnectionStatus] = React.useState('Not connected');
             const [deployProgress, setDeployProgress] = React.useState(0);
+            const [selectedTestScenario, setSelectedTestScenario] = React.useState('');
+            const [testResult, setTestResult] = React.useState(null);
+            const [customInputs, setCustomInputs] = React.useState({
+                initialHeight: 0,
+                initialRoll: 0,
+                initialPitch: 0,
+                initialYaw: 0
+            });
 
             const containerRef = React.useRef(null);
             const sceneRef = React.useRef(null);
@@ -260,18 +326,33 @@
             const droneGroupRef = React.useRef(null);
             const editorRef = React.useRef(null);
 
-            // Simulate IP address for the session
+            // Test scenarios
+            const testScenarios = [
+                { id: 'hover', name: 'Hover at 1m', criteria: { height: 1, rollMax: 5, pitchMax: 5 } },
+                { id: 'ascent', name: 'Ascent to 2m', criteria: { height: 2, rollMax: 10, pitchMax: 10 } },
+                { id: 'yaw', name: 'Yaw 90°', criteria: { yaw: 90, rollMax: 5, pitchMax: 5 } }
+            ];
+
+            // Initialize IP and load data
             React.useEffect(() => {
                 const generateRandomIp = () => {
                     return `${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}`;
                 };
                 setCurrentIp(generateRandomIp());
-                // Load drone config from localStorage
                 const savedConfig = localStorage.getItem('droneConfig');
                 if (savedConfig) {
                     setDroneConfig(JSON.parse(savedConfig));
                 }
+                const savedLeaderboard = localStorage.getItem('leaderboard');
+                if (savedLeaderboard) {
+                    setLeaderboard(JSON.parse(savedLeaderboard));
+                }
             }, []);
+
+            // Save leaderboard to localStorage
+            React.useEffect(() => {
+                localStorage.setItem('leaderboard', JSON.stringify(leaderboard));
+            }, [leaderboard]);
 
             const codeTemplates = {
                 'FATEH-V1': `# FATEH V1 DEFAULT CONTROL SYSTEM
@@ -357,173 +438,331 @@ def mode(pids, throttle, angles, targets, dt):
                 };
             }, [activeTab]);
 
-            React.useEffect(() => {
-                if (!containerRef.current) {
-                    setSimulationError('Container element not found');
-                    return;
-                }
-
-                let animationFrameId;
+            // Simulate code execution
+            const simulateCode = () => {
                 try {
-                    if (!window.THREE) {
-                        throw new Error('Three.js library not loaded');
+                    if (!editorContent.includes('def mode(')) {
+                        throw new Error('Missing mode() function');
                     }
 
-                    if (!WebGLRenderingContext || !document.createElement('canvas').getContext('webgl')) {
-                        throw new Error('WebGL not supported by this browser');
+                    // Mock PID controller
+                    class PID {
+                        constructor() {
+                            this.kp = 1.0;
+                            this.ki = 0.05;
+                            this.kd = 0.2;
+                            this.integral = 0;
+                            this.prevError = 0;
+                        }
+                        set_gains(kp, ki, kd) {
+                            this.kp = kp;
+                            this.ki = ki;
+                            this.kd = kd;
+                        }
+                        update(target, current, dt) {
+                            const error = target - current;
+                            this.integral += error * dt;
+                            const derivative = (error - this.prevError) / dt;
+                            this.prevError = error;
+                            return this.kp * error + this.ki * this.integral + this.kd * derivative;
+                        }
                     }
 
-                    const scene = new THREE.Scene();
-                    scene.background = null;
-                    sceneRef.current = scene;
-                    
-                    const camera = new THREE.PerspectiveCamera(
-                        75, 
-                        containerRef.current.clientWidth / 300, 
-                        0.1, 
-                        1000
-                    );
-                    camera.position.set(0, 2, 5);
-                    camera.lookAt(0, 0, 0);
-                    cameraRef.current = camera;
-                    
-                    const renderer = new THREE.WebGLRenderer({ 
-                        antialias: true, 
-                        alpha: true 
-                    });
-                    renderer.setSize(
-                        containerRef.current.clientWidth, 
-                        300
-                    );
-                    containerRef.current.appendChild(renderer.domElement);
-                    rendererRef.current = renderer;
-                    
-                    const droneGroup = new THREE.Group();
-                    
-                    const bodyGeometry = new THREE.BoxGeometry(0.5, 0.2, 0.5);
-                    const bodyMaterial = new THREE.MeshBasicMaterial({ 
-                        color: 0x00f0ff,
-                        wireframe: true
-                    });
-                    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-                    droneGroup.add(body);
-                    
-                    const armGeometry = new THREE.BoxGeometry(0.8, 0.05, 0.05);
-                    const armMaterial = new THREE.MeshBasicMaterial({ 
-                        color: 0xff3e7f,
-                        wireframe: true
-                    });
-                    
-                    for (let i = 0; i < 4; i++) {
-                        const arm = new THREE.Mesh(armGeometry, armMaterial);
-                        arm.position.set(
-                            0.5 * Math.cos((i * Math.PI) / 2),
-                            0,
-                            0.5 * Math.sin((i * Math.PI) / 2)
-                        );
-                        arm.rotation.y = (i * Math.PI) / 2;
-                        droneGroup.add(arm);
+                    const pids = [new PID(), new PID(), new PID()];
+                    let simThrottle = throttle;
+                    let simAngles = [...angles];
+                    let simHeight = height;
+                    let simMotorSpeeds = [0, 0, 0, 0];
+                    const dt = 0.016; // 60 FPS
+
+                    // Simplified code evaluation
+                    const code = `
+                        ${editorContent}
+                        return mode(pids, ${simThrottle}, [${simAngles}], [0, 0, 0], ${dt})
+                    `;
+                    const result = eval(code.replace('def mode', 'function mode')); // Unsafe but for simulation only
+                    simMotorSpeeds = result.map(speed => Math.max(0, Math.min(65535, speed)));
+
+                    // Update drone state
+                    const avgSpeed = simMotorSpeeds.reduce((a, b) => a + b, 0) / 4;
+                    simHeight += (avgSpeed / 65535) * 0.1 * dt * 100; // Scale to meters
+                    simHeight = Math.max(0, Math.min(10, simHeight)); // Limit height
+
+                    // Simplified angle updates based on motor differences
+                    const rollDiff = (simMotorSpeeds[1] + simMotorSpeeds[2] - simMotorSpeeds[0] - simMotorSpeeds[3]) / 65535;
+                    const pitchDiff = (simMotorSpeeds[0] + simMotorSpeeds[1] - simMotorSpeeds[2] - simMotorSpeeds[3]) / 65535;
+                    simAngles[0] += rollDiff * 5; // Roll
+                    simAngles[1] += pitchDiff * 5; // Pitch
+                    simAngles[0] = Math.max(-45, Math.min(45, simAngles[0]));
+                    simAngles[1] = Math.max(-45, Math.min(45, simAngles[1]));
+
+                    // Check for warnings
+                    const newWarnings = [];
+                    if (simHeight <= 0 && simThrottle > 0) {
+                        newWarnings.push('Crash Detected: Height reached 0m');
                     }
-                    
-                    const propGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 16);
-                    const propMaterial = new THREE.MeshBasicMaterial({ 
-                        color: 0x00ff88,
-                        wireframe: true
-                    });
-                    
-                    for (let i = 0; i < 4; i++) {
-                        const prop = new THREE.Mesh(propGeometry, propMaterial);
-                        prop.position.set(
-                            0.7 * Math.cos((i * Math.PI) / 2),
-                            0.1,
-                            0.7 * Math.sin((i * Math.PI) / 2)
-                        );
-                        droneGroup.add(prop);
+                    if (Math.abs(simAngles[0]) > 45 || Math.abs(simAngles[1]) > 45) {
+                        newWarnings.push('Excessive Roll/Pitch Detected');
                     }
-                    
-                    scene.add(droneGroup);
-                    droneGroupRef.current = droneGroup;
-                    
-                    const ambientLight = new THREE.AmbientLight(0x404040);
-                    scene.add(ambientLight);
-                    
-                    const pointLight = new THREE.PointLight(0x00f0ff, 1, 100);
-                    pointLight.position.set(5, 5, 5);
-                    scene.add(pointLight);
-                    
-                    const animate = () => {
-                        try {
-                            if (isSimulating && droneGroupRef.current) {
-                                droneGroupRef.current.rotation.x = angles[1] * (Math.PI / 180);
-                                droneGroupRef.current.rotation.z = -angles[0] * (Math.PI / 180);
-                                droneGroupRef.current.rotation.y = angles[2] * (Math.PI / 180);
-                                droneGroupRef.current.position.y = height * 0.1;
-                                
-                                droneGroupRef.current.children.forEach((child, index) => {
-                                    if (index >= 5) {
-                                        child.rotation.z += 0.1;
-                                    }
-                                });
-                            }
-                            
-                            if (rendererRef.current && sceneRef.current && cameraRef.current) {
-                                rendererRef.current.render(sceneRef.current, cameraRef.current);
-                            }
-                            animationFrameId = requestAnimationFrame(animate);
-                        } catch (error) {
-                            console.error('Animation Error:', error);
-                            setSimulationError('Animation rendering failed: ' + error.message);
-                            cancelAnimationFrame(animationFrameId);
+                    if (simMotorSpeeds.some(speed => speed >= 65535)) {
+                        newWarnings.push('Motor Speed Limit Exceeded');
+                    }
+                    setSimulationWarnings(newWarnings);
+
+                    // Update state
+                    setHeight(simHeight);
+                    setAngles(simAngles);
+                    setMotorSpeeds(simMotorSpeeds);
+                    setThrottle(simThrottle);
+
+                    // Check test scenario
+                    if (selectedTestScenario) {
+                        const scenario = testScenarios.find(s => s.id === selectedTestScenario);
+                        if (scenario) {
+                            const heightOk = Math.abs(simHeight - scenario.criteria.height) <= 0.5;
+                            const rollOk = Math.abs(simAngles[0]) <= scenario.criteria.rollMax;
+                            const pitchOk = Math.abs(simAngles[1]) <= scenario.criteria.pitchMax;
+                            const yawOk = !scenario.criteria.yaw || Math.abs(simAngles[2] - scenario.criteria.yaw) <= 5;
+                            setTestResult({
+                                scenario: scenario.name,
+                                passed: heightOk && rollOk && pitchOk && yawOk,
+                                details: {
+                                    height: heightOk ? 'Pass' : `Fail (Expected ${scenario.criteria.height}m, Got ${simHeight.toFixed(1)}m)`,
+                                    roll: rollOk ? 'Pass' : `Fail (Expected <${scenario.criteria.rollMax}°, Got ${simAngles[0].toFixed(1)}°)`,
+                                    pitch: pitchOk ? 'Pass' : `Fail (Expected <${scenario.criteria.pitchMax}°, Got ${simAngles[1].toFixed(1)}°)`,
+                                    yaw: yawOk ? 'Pass' : `Fail (Expected ${scenario.criteria.yaw}°, Got ${simAngles[2].toFixed(1)}°)`
+                                }
+                            });
                         }
-                    };
-                    
-                    animate();
-                    setSimulationError(null);
-                    
-                    const handleResize = () => {
-                        try {
-                            if (containerRef.current && cameraRef.current && rendererRef.current) {
-                                cameraRef.current.aspect = containerRef.current.clientWidth / 300;
-                                cameraRef.current.updateProjectionMatrix();
-                                rendererRef.current.setSize(
-                                    containerRef.current.clientWidth, 
-                                    300
-                                );
-                            }
-                        } catch (error) {
-                            console.error('Resize Error:', error);
-                            setSimulationError('Window resize handling failed: ' + error.message);
-                        }
-                    };
-                    
-                    window.addEventListener('resize', handleResize);
-                    
-                    return () => {
-                        try {
-                            cancelAnimationFrame(animationFrameId);
-                            window.removeEventListener('resize', handleResize);
-                            if (rendererRef.current) {
-                                rendererRef.current.dispose();
-                            }
-                            if (containerRef.current && rendererRef.current?.domElement) {
-                                containerRef.current.removeChild(rendererRef.current.domElement);
-                            }
-                        } catch (error) {
-                            console.error('Cleanup Error:', error);
-                            setSimulationError('Simulation cleanup failed: ' + error.message);
-                        }
-                    };
+                    }
+
+                    // Calculate stability metrics
+                    const stabilityScore = 100 - (Math.abs(simAngles[0]) + Math.abs(simAngles[1])) / 0.9; // Max 45° each
+                    const responseTime = simHeight > 0 ? 1 / (Math.abs(simHeight - customInputs.initialHeight) / dt) : 0;
+                    setStabilityReport({
+                        stabilityScore: Math.max(0, Math.min(100, stabilityScore.toFixed(1))),
+                        responseTime: responseTime.toFixed(2)
+                    });
+
                 } catch (error) {
-                    console.error('3D Initialization Error:', error);
-                    setSimulationError('Failed to initialize 3D simulation: ' + error.message);
+                    setSimulationError('Code Execution Error: ' + error.message);
+                    setIsSimulating(false);
                 }
-            }, [isSimulating, angles, height]);
+            };
+
+            // Three.js Simulation Setup with Container Check
+            React.useEffect(() => {
+                let mounted = true;
+
+                const initializeSimulation = () => {
+                    if (!mounted) return;
+
+                    console.log('Attempting to initialize Three.js simulation...');
+                    console.log('Container ref:', containerRef.current);
+
+                    if (!containerRef.current) {
+                        console.error('Simulation Error: containerRef is null');
+                        setSimulationError('Container element not found. Ensure simulation container is rendered.');
+                        return;
+                    }
+
+                    let animationFrameId;
+                    try {
+                        if (!window.THREE) {
+                            throw new Error('Three.js library not loaded');
+                        }
+
+                        if (!WebGLRenderingContext || !document.createElement('canvas').getContext('webgl')) {
+                            throw new Error('WebGL not supported by this browser');
+                        }
+
+                        console.log('Initializing Three.js components...');
+
+                        const scene = new THREE.Scene();
+                        scene.background = null;
+                        sceneRef.current = scene;
+                        console.log('Scene initialized');
+
+                        const camera = new THREE.PerspectiveCamera(
+                            75, 
+                            containerRef.current.clientWidth / 200, 
+                            0.1, 
+                            1000
+                        );
+                        camera.position.set(0, 2, 5);
+                        camera.lookAt(0, 0, 0);
+                        cameraRef.current = camera;
+                        console.log('Camera initialized');
+
+                        const renderer = new THREE.WebGLRenderer({ 
+                            antialias: true, 
+                            alpha: true 
+                        });
+                        renderer.setSize(
+                            containerRef.current.clientWidth, 
+                            200
+                        );
+                        containerRef.current.appendChild(renderer.domElement);
+                        rendererRef.current = renderer;
+                        console.log('Renderer initialized and appended to DOM');
+
+                        const droneGroup = new THREE.Group();
+                        
+                        const bodyGeometry = new THREE.BoxGeometry(0.5, 0.2, 0.5);
+                        const bodyMaterial = new THREE.MeshBasicMaterial({ 
+                            color: 0x00f0ff,
+                            wireframe: true
+                        });
+                        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                        droneGroup.add(body);
+                        console.log('Drone body added');
+
+                        const armGeometry = new THREE.BoxGeometry(0.8, 0.05, 0.05);
+                        const armMaterial = new THREE.MeshBasicMaterial({ 
+                            color: 0xff3e7f,
+                            wireframe: true
+                        });
+                        
+                        for (let i = 0; i < 4; i++) {
+                            const arm = new THREE.Mesh(armGeometry, armMaterial);
+                            arm.position.set(
+                                0.5 * Math.cos((i * Math.PI) / 2),
+                                0,
+                                0.5 * Math.sin((i * Math.PI) / 2)
+                            );
+                            arm.rotation.y = (i * Math.PI) / 2;
+                            droneGroup.add(arm);
+                        }
+                        console.log('Drone arms added');
+
+                        const propGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 16);
+                        const propMaterial = new THREE.MeshBasicMaterial({ 
+                            color: 0x00ff88,
+                            wireframe: true
+                        });
+                        
+                        for (let i = 0; i < 4; i++) {
+                            const prop = new THREE.Mesh(propGeometry, propMaterial);
+                            prop.position.set(
+                                0.7 * Math.cos((i * Math.PI) / 2),
+                                0.1,
+                                0.7 * Math.sin((i * Math.PI) / 2)
+                            );
+                            droneGroup.add(prop);
+                        }
+                        console.log('Drone propellers added');
+
+                        scene.add(droneGroup);
+                        droneGroupRef.current = droneGroup;
+                        console.log('Drone group added to scene');
+
+                        const ambientLight = new THREE.AmbientLight(0x404040);
+                        scene.add(ambientLight);
+                        console.log('Ambient light added');
+
+                        const pointLight = new THREE.PointLight(0x00f0ff, 1, 100);
+                        pointLight.position.set(5, 5, 5);
+                        scene.add(pointLight);
+                        console.log('Point light added');
+
+                        const animate = () => {
+                            if (!mounted) return;
+
+                            try {
+                                if (!droneGroupRef.current || !rendererRef.current || !sceneRef.current || !cameraRef.current) {
+                                    console.error('Animation Error: Missing refs', {
+                                        droneGroup: !!droneGroupRef.current,
+                                        renderer: !!rendererRef.current,
+                                        scene: !!sceneRef.current,
+                                        camera: !!cameraRef.current
+                                    });
+                                    setSimulationError('Animation failed: Missing components');
+                                    return;
+                                }
+
+                                if (isSimulating) {
+                                    droneGroupRef.current.rotation.x = angles[1] * (Math.PI / 180);
+                                    droneGroupRef.current.rotation.z = -angles[0] * (Math.PI / 180);
+                                    droneGroupRef.current.rotation.y = angles[2] * (Math.PI / 180);
+                                    droneGroupRef.current.position.y = height * 0.1;
+                                    
+                                    droneGroupRef.current.children.forEach((child, index) => {
+                                        if (index >= 5) {
+                                            child.rotation.z += 0.1 * (motorSpeeds[index - 5] / 65535);
+                                        }
+                                    });
+
+                                    simulateCode();
+                                }
+                                
+                                rendererRef.current.render(sceneRef.current, cameraRef.current);
+                                animationFrameId = requestAnimationFrame(animate);
+                            } catch (error) {
+                                console.error('Animation Error:', error);
+                                setSimulationError('Animation rendering failed: ' + error.message);
+                                cancelAnimationFrame(animationFrameId);
+                            }
+                        };
+                        
+                        console.log('Starting animation loop');
+                        animate();
+                        setSimulationError(null);
+                        
+                        const handleResize = () => {
+                            try {
+                                if (containerRef.current && cameraRef.current && rendererRef.current) {
+                                    cameraRef.current.aspect = containerRef.current.clientWidth / 200;
+                                    cameraRef.current.updateProjectionMatrix();
+                                    rendererRef.current.setSize(
+                                        containerRef.current.clientWidth, 
+                                        200
+                                    );
+                                    console.log('Renderer resized');
+                                }
+                            } catch (error) {
+                                console.error('Resize Error:', error);
+                                setSimulationError('Window resize handling failed: ' + error.message);
+                            }
+                        };
+                        
+                        window.addEventListener('resize', handleResize);
+                        
+                        return () => {
+                            mounted = false;
+                            try {
+                                console.log('Cleaning up Three.js simulation');
+                                cancelAnimationFrame(animationFrameId);
+                                window.removeEventListener('resize', handleResize);
+                                if (rendererRef.current) {
+                                    rendererRef.current.dispose();
+                                    if (containerRef.current && rendererRef.current.domElement) {
+                                        containerRef.current.removeChild(rendererRef.current.domElement);
+                                    }
+                                }
+                            } catch (error) {
+                                console.error('Cleanup Error:', error);
+                                setSimulationError('Simulation cleanup failed: ' + error.message);
+                            }
+                        };
+                    } catch (error) {
+                        console.error('3D Initialization Error:', error);
+                        setSimulationError('Failed to initialize 3D simulation: ' + error.message);
+                    }
+                };
+
+                // Delay initialization to ensure DOM is ready
+                const timeoutId = setTimeout(initializeSimulation, 100);
+
+                return () => {
+                    clearTimeout(timeoutId);
+                    mounted = false;
+                };
+            }, [isSimulating, angles, height, motorSpeeds, throttle]);
 
             // Test drone connection
             const testDroneConnection = async () => {
                 setConnectionStatus('Testing connection...');
                 try {
-                    // Attempt a simple HTTP GET or WebSocket connection
                     const response = await fetch(`http://${droneConfig.ip}:${droneConfig.port}/ping`, {
                         method: 'GET',
                         timeout: 2000
@@ -548,38 +787,83 @@ def mode(pids, throttle, angles, targets, dt):
                 localStorage.setItem('droneConfig', JSON.stringify(newConfig));
             };
 
+            // Validate email format
+            const validateEmail = (email) => {
+                const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                return re.test(email);
+            };
+
+            // Save profile to CSV
+            const saveToCsv = (profile) => {
+                const csvHeader = "Name,College Name,Email ID,Username,Educational Background,Score,IP\n";
+                const escapeCsvField = (field) => `"${field.replace(/"/g, '""')}"`;
+                const csvRow = [
+                    escapeCsvField(profile.name),
+                    escapeCsvField(profile.collegeName),
+                    escapeCsvField(profile.email),
+                    escapeCsvField(profile.username),
+                    escapeCsvField(profile.educationalBackground),
+                    profile.score,
+                    escapeCsvField(profile.ip)
+                ].join(',');
+                const existingCsv = localStorage.getItem('profileDatabase') || csvHeader;
+                const updatedCsv = existingCsv + csvRow + '\n';
+                localStorage.setItem('profileDatabase', updatedCsv);
+            };
+
             const handleCreateProfile = () => {
-                if (!username.trim()) {
-                    setStatus('Please enter a username');
+                const { name, collegeName, email, username, educationalBackground } = profileData;
+                if (!name.trim() || !collegeName.trim() || !email.trim() || !username.trim() || !educationalBackground.trim()) {
+                    setStatus('All fields are required');
                     return;
                 }
                 if (username.length > 15) {
                     setStatus('Username must be 15 characters or less');
                     return;
                 }
-                if (leaderboard.some(entry => entry.name === username)) {
+                if (!validateEmail(email)) {
+                    setStatus('Invalid email format');
+                    return;
+                }
+                if (name.length > 100 || collegeName.length > 100 || educationalBackground.length > 100) {
+                    setStatus('Fields must be 100 characters or less');
+                    return;
+                }
+                if (leaderboard.some(entry => entry.username === username)) {
                     setStatus('Username already exists');
                     return;
                 }
                 
+                const newProfile = {
+                    name,
+                    collegeName,
+                    email,
+                    username,
+                    educationalBackground,
+                    score: 0,
+                    ip: currentIp
+                };
+                
                 setLeaderboard(prev => [
                     ...prev,
-                    { name: username, score: 0, owner: username, ip: currentIp }
+                    { username, score: 0, ip: currentIp }
                 ]);
+                saveToCsv(newProfile);
                 setShowProfileModal(false);
+                setProfileData({ name: '', collegeName: '', email: '', username: '', educationalBackground: '' });
                 setStatus('Profile created');
             };
 
             const handleAddProfile = () => {
                 setShowProfileModal(true);
-                setUsername('');
+                setProfileData({ name: '', collegeName: '', email: '', username: '', educationalBackground: '' });
             };
 
-            const handleCheckboxChange = (name) => {
+            const handleCheckboxChange = (username) => {
                 setSelectedProfiles(prev => 
-                    prev.includes(name)
-                        ? prev.filter(n => n !== name)
-                        : [...prev, name]
+                    prev.includes(username)
+                        ? prev.filter(n => n !== username)
+                        : [...prev, username]
                 );
             };
 
@@ -589,8 +873,8 @@ def mode(pids, throttle, angles, targets, dt):
                     return;
                 }
                 
-                const invalidSelections = selectedProfiles.filter(name => {
-                    const entry = leaderboard.find(entry => entry.name === name);
+                const invalidSelections = selectedProfiles.filter(username => {
+                    const entry = leaderboard.find(entry => entry.username === username);
                     return entry && entry.ip !== currentIp;
                 });
 
@@ -603,11 +887,21 @@ def mode(pids, throttle, angles, targets, dt):
             };
 
             const confirmDelete = () => {
-                setLeaderboard(prev => prev.filter(entry => !selectedProfiles.includes(entry.name)));
+                const updatedLeaderboard = leaderboard.filter(entry => !selectedProfiles.includes(entry.username));
+                setLeaderboard(updatedLeaderboard);
+                const csvHeader = "Name,College Name,Email ID,Username,Educational Background,Score,IP\n";
+                const escapeCsvField = (field) => `"${field.replace(/"/g, '""')}"`;
+                let updatedCsv = csvHeader;
+                updatedLeaderboard.forEach(entry => {
+                    const fullProfile = (localStorage.getItem('profileDatabase') || '').split('\n').slice(1).find(row => row.includes(entry.username));
+                    if (fullProfile) {
+                        updatedCsv += fullProfile + '\n';
+                    }
+                });
+                localStorage.setItem('profileDatabase', updatedCsv);
                 setSelectedProfiles([]);
                 setShowDeleteConfirm(false);
                 setStatus('Profile(s) deleted');
-                setUsername('');
             };
 
             const cancelDelete = () => {
@@ -619,10 +913,11 @@ def mode(pids, throttle, angles, targets, dt):
                 const step = 1;
                 let newAngles = [...angles];
                 let newHeight = height;
+                let newThrottle = throttle;
                 
                 switch (command) {
-                    case 'Up': newHeight = Math.min(newHeight + step, 100); break;
-                    case 'Down': newHeight = Math.max(newHeight - step, 0); break;
+                    case 'Up': newThrottle = Math.min(newThrottle + 10, 100); break;
+                    case 'Down': newThrottle = Math.max(newThrottle - 10, 0); break;
                     case 'Forward': newAngles[1] = Math.min(newAngles[1] + step, 45); break;
                     case 'Backward': newAngles[1] = Math.max(newAngles[1] - step, -45); break;
                     case 'Left': newAngles[0] = Math.max(newAngles[0] - step, -45); break;
@@ -632,11 +927,13 @@ def mode(pids, throttle, angles, targets, dt):
                     case 'Reset': 
                         newAngles = [0, 0, 0];
                         newHeight = 0;
+                        newThrottle = 0;
                         break;
                 }
                 
                 setAngles(newAngles);
                 setHeight(newHeight);
+                setThrottle(newThrottle);
             };
 
             const buildCode = () => {
@@ -666,10 +963,27 @@ def mode(pids, throttle, angles, targets, dt):
                 
                 setStatus('Starting simulation...');
                 setIsSimulating(true);
+                setSimulationWarnings([]);
+                setTestResult(null);
+                setStabilityReport(null);
+                
+                // Apply custom inputs
+                setHeight(parseFloat(customInputs.initialHeight) || 0);
+                setAngles([
+                    parseFloat(customInputs.initialRoll) || 0,
+                    parseFloat(customInputs.initialPitch) || 0,
+                    parseFloat(customInputs.initialYaw) || 0
+                ]);
+                setThrottle(50); // Start with neutral throttle
                 
                 setTimeout(() => {
                     setStatus('Simulation running');
                 }, 500);
+            };
+
+            const stopSimulation = () => {
+                setIsSimulating(false);
+                setStatus('Simulation stopped');
             };
 
             const deployToDrone = async () => {
@@ -692,7 +1006,6 @@ def mode(pids, throttle, angles, targets, dt):
 
                 let ws;
                 try {
-                    // Establish WebSocket connection
                     ws = new WebSocket(`ws://${droneConfig.ip}:${droneConfig.port}`);
                     
                     ws.onopen = () => {
@@ -706,7 +1019,6 @@ def mode(pids, throttle, angles, targets, dt):
 
                         if (message === 'ack: deploy_ready') {
                             setStatus('Sending code...');
-                            // Send code in chunks
                             const chunkSize = 128;
                             const code = editorContent + '\nEOF\n';
                             const totalBytes = code.length;
@@ -717,11 +1029,11 @@ def mode(pids, throttle, angles, targets, dt):
                                 ws.send(chunk);
                                 bytesSent += chunk.length;
                                 setDeployProgress(Math.min((bytesSent / totalBytes) * 100, 100));
-                                await new Promise(resolve => setTimeout(resolve, 10)); // Small delay to avoid overwhelming drone
+                                await new Promise(resolve => setTimeout(resolve, 10));
                             }
                         } else if (message === 'ack: code_received') {
                             setStatus('Deployment successful');
-                            ws.send('ping\n'); // Confirm drone is still responsive
+                            ws.send('ping\n');
                         } else if (message.startsWith('error:')) {
                             setStatus(`Deployment failed: ${message}`);
                             ws.close();
@@ -746,7 +1058,6 @@ def mode(pids, throttle, angles, targets, dt):
                         }
                     };
 
-                    // Timeout for WebSocket connection
                     setTimeout(() => {
                         if (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CLOSED) {
                             ws.close();
@@ -856,10 +1167,24 @@ def mode(pids, throttle, angles, targets, dt):
                         
                         setLeaderboard(prev => {
                             const newLeaderboard = prev.map(entry => 
-                                entry.name === username 
+                                entry.username === profileData.username 
                                     ? { ...entry, score: entry.score + challenge.points }
                                     : entry
                             ).sort((a, b) => b.score - a.score);
+                            
+                            // Update CSV with new scores
+                            const csvHeader = "Name,College Name,Email ID,Username,Educational Background,Score,IP\n";
+                            const escapeCsvField = (field) => `"${field.replace(/"/g, '""')}"`;
+                            let updatedCsv = csvHeader;
+                            newLeaderboard.forEach(entry => {
+                                const fullProfile = (localStorage.getItem('profileDatabase') || '').split('\n').slice(1).find(row => row.includes(entry.username));
+                                if (fullProfile) {
+                                    const profileParts = fullProfile.split(',').map(part => part.replace(/^"|"$/g, '').replace(/""/g, '"'));
+                                    profileParts[5] = entry.score; // Update score
+                                    updatedCsv += profileParts.map(part => escapeCsvField(part)).join(',') + '\n';
+                                }
+                            });
+                            localStorage.setItem('profileDatabase', updatedCsv);
                             
                             return [...newLeaderboard];
                         });
@@ -877,19 +1202,72 @@ def mode(pids, throttle, angles, targets, dt):
                                 <h3 className="text-lg mb-4" style={{ color: '#00f0ff' }}>
                                     CREATE PROFILE
                                 </h3>
-                                <input
-                                    type="text"
-                                    className="w-full p-2 mb-4 bg-black text-cyan-300 border border-purple-500 rounded-md text-sm font-mono"
-                                    placeholder="Enter username (max 15 chars)"
-                                    value={username}
-                                    onChange={(e) => setUsername(e.target.value)}
-                                />
-                                <button
-                                    onClick={handleCreateProfile}
-                                    className="cyber-card w-full"
-                                >
-                                    CREATE
-                                </button>
+                                <div className="space-y-2">
+                                    <div>
+                                        <label className="text-xs text-gray-400">Name</label>
+                                        <input
+                                            type="text"
+                                            className="input-field"
+                                            placeholder="Enter full name"
+                                            value={profileData.name}
+                                            onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400">College Name</label>
+                                        <input
+                                            type="text"
+                                            className="input-field"
+                                            placeholder="Enter college name"
+                                            value={profileData.collegeName}
+                                            onChange={(e) => setProfileData({ ...profileData, collegeName: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400">Email ID</label>
+                                        <input
+                                            type="email"
+                                            className="input-field"
+                                            placeholder="Enter email ID"
+                                            value={profileData.email}
+                                            onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400">Username</label>
+                                        <input
+                                            type="text"
+                                            className="input-field"
+                                            placeholder="Enter username (max 15 chars)"
+                                            value={profileData.username}
+                                            onChange={(e) => setProfileData({ ...profileData, username: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400">Educational Background</label>
+                                        <input
+                                            type="text"
+                                            className="input-field"
+                                            placeholder="e.g., B.Tech in CSE, 2nd Year"
+                                            value={profileData.educationalBackground}
+                                            onChange={(e) => setProfileData({ ...profileData, educationalBackground: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 mt-4">
+                                    <button
+                                        onClick={handleCreateProfile}
+                                        className="cyber-button"
+                                    >
+                                        CREATE
+                                    </button>
+                                    <button
+                                        onClick={() => setShowProfileModal(false)}
+                                        className="delete-button"
+                                    >
+                                        CANCEL
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -1073,7 +1451,7 @@ def mode(pids, throttle, angles, targets, dt):
                             </h3>
                             
                             {simulationError ? (
-                                <div className="text-red-400 p-4 text-center flex-grow">
+                                <div className="error-message flex-grow">
                                     {simulationError}
                                 </div>
                             ) : (
@@ -1081,25 +1459,166 @@ def mode(pids, throttle, angles, targets, dt):
                                     <div 
                                         ref={containerRef} 
                                         className="hologram-container mb-4"
+                                        id="simulation-container"
                                     ></div>
                                     
-                                    <div className="grid grid-cols-3 gap-2 text-center mb-4">
-                                        <div>
-                                            <p className="text-xs text-gray-400">ROLL</p>
-                                            <p style={{ color: '#00f0ff' }}>{angles[0].toFixed(1)}°</p>
+                                    <div className="mb-4">
+                                        <label className="text-xs text-gray-400">Test Scenario</label>
+                                        <select
+                                            className="input-field"
+                                            value={selectedTestScenario}
+                                            onChange={(e) => setSelectedTestScenario(e.target.value)}
+                                        >
+                                            <option value="">Select a scenario</option>
+                                            {testScenarios.map(scenario => (
+                                                <option key={scenario.id} value={scenario.id}>
+                                                    {scenario.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="mb-4">
+                                        <h4 className="text-sm mb-2" style={{ color: '#ff3e7f' }}>
+                                            Custom Initial Conditions
+                                        </h4>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label className="text-xs text-gray-400">Initial Height (m)</label>
+                                                <input
+                                                    type="number"
+                                                    className="input-field"
+                                                    value={customInputs.initialHeight}
+                                                    onChange={(e) => setCustomInputs({ ...customInputs, initialHeight: e.target.value })}
+                                                    placeholder="0"
+                                                    min="0"
+                                                    max="10"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-gray-400">Initial Roll (°)</label>
+                                                <input
+                                                    type="number"
+                                                    className="input-field"
+                                                    value={customInputs.initialRoll}
+                                                    onChange={(e) => setCustomInputs({ ...customInputs, initialRoll: e.target.value })}
+                                                    placeholder="0"
+                                                    min="-45"
+                                                    max="45"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-gray-400">Initial Pitch (°)</label>
+                                                <input
+                                                    type="number"
+                                                    className="input-field"
+                                                    value={customInputs.initialPitch}
+                                                    onChange={(e) => setCustomInputs({ ...customInputs, initialPitch: e.target.value })}
+                                                    placeholder="0"
+                                                    min="-45"
+                                                    max="45"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-gray-400">Initial Yaw (°)</label>
+                                                <input
+                                                    type="number"
+                                                    className="input-field"
+                                                    value={customInputs.initialYaw}
+                                                    onChange={(e) => setCustomInputs({ ...customInputs, initialYaw: e.target.value })}
+                                                    placeholder="0"
+                                                    min="-360"
+                                                    max="360"
+                                                />
+                                            </div>
                                         </div>
-                                        <div>
-                                            <p className="text-xs text-gray-400">PITCH</p>
-                                            <p style={{ color: '#00f0ff' }}>{angles[1].toFixed(1)}°</p>
+                                    </div>
+
+                                    <h4 className="text-sm mb-2" style={{ color: '#ff3e7f' }}>
+                                        Telemetry
+                                    </h4>
+                                    <table className="telemetry-table mb-4">
+                                        <thead>
+                                            <tr>
+                                                <th>Parameter</th>
+                                                <th>Value</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>Height</td>
+                                                <td>{height.toFixed(1)}m</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Roll</td>
+                                                <td>{angles[0].toFixed(1)}°</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Pitch</td>
+                                                <td>{angles[1].toFixed(1)}°</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Yaw</td>
+                                                <td>{angles[2].toFixed(1)}°</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Throttle</td>
+                                                <td>{throttle.toFixed(0)}%</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Motor 1</td>
+                                                <td>{(motorSpeeds[0] / 65535 * 100).toFixed(0)}%</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Motor 2</td>
+                                                <td>{(motorSpeeds[1] / 65535 * 100).toFixed(0)}%</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Motor 3</td>
+                                                <td>{(motorSpeeds[2] / 65535 * 100).toFixed(0)}%</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Motor 4</td>
+                                                <td>{(motorSpeeds[3] / 65535 * 100).toFixed(0)}%</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+
+                                    {simulationWarnings.length > 0 && (
+                                        <div className="warning-message">
+                                            <h4 className="text-sm mb-2">Warnings</h4>
+                                            <ul>
+                                                {simulationWarnings.map((warning, index) => (
+                                                    <li key={index}>{warning}</li>
+                                                ))}
+                                            </ul>
                                         </div>
-                                        <div>
-                                            <p className="text-xs text-gray-400">YAW</p>
-                                            <p style={{ color: '#00f0ff' }}>{angles[2].toFixed(1)}°</p>
+                                    )}
+
+                                    {testResult && (
+                                        <div className="report-card">
+                                            <h4 className="text-sm mb-2">Test Result: {testResult.scenario}</h4>
+                                            <p>Status: <span style={{ color: testResult.passed ? '#00ff80' : '#ff3e7f' }}>
+                                                {testResult.passed ? 'Passed' : 'Failed'}
+                                            </span></p>
+                                            <ul>
+                                                <li>Height: {testResult.details.height}</li>
+                                                <li>Roll: {testResult.details.roll}</li>
+                                                <li>Pitch: {testResult.details.pitch}</li>
+                                                <li>Yaw: {testResult.details.yaw}</li>
+                                            </ul>
                                         </div>
-                                        <div>
-                                            <p className="text-xs text-gray-400">ALTITUDE</p>
-                                            <p style={{ color: '#00f0ff' }}>{height.toFixed(1)}m</p>
+                                    )}
+
+                                    {stabilityReport && (
+                                        <div className="report-card">
+                                            <h4 className="text-sm mb-2">Stability Report</h4>
+                                            <p>Stability Score: {stabilityReport.stabilityScore}%</p>
+                                            <p>Response Time: {stabilityReport.responseTime}s</p>
                                         </div>
+                                    )}
+
+                                    <div className="grid grid-cols-3 gap-2 mb-4">
                                         <div>
                                             <p className="text-xs text-gray-400">MODE</p>
                                             <p style={{ color: '#00f0ff' }}>{activeTab}</p>
@@ -1128,11 +1647,11 @@ def mode(pids, throttle, angles, targets, dt):
                                             ↗ FWD
                                         </button>
                                         <button 
-                                            onClick={() => handleControl('Reset')}
+                                            onClick={stopSimulation}
                                             className="cyber-button"
-                                            disabled={isDeploying}
+                                            disabled={!isSimulating || isDeploying}
                                         >
-                                            ⟳ RESET
+                                            ■ STOP
                                         </button>
                                         <button 
                                             onClick={() => handleControl('Left')}
@@ -1239,16 +1758,16 @@ def mode(pids, throttle, angles, targets, dt):
                             </h4>
                             <div className="space-y-2 flex-grow">
                                 {leaderboard.sort((a, b) => b.score - a.score).slice(0, 5).map((entry, index) => (
-                                    <div key={entry.name} className="flex justify-between items-center">
+                                    <div key={entry.username} className="flex justify-between items-center">
                                         <label className="flex items-center">
                                             <input
                                                 type="checkbox"
-                                                checked={selectedProfiles.includes(entry.name)}
-                                                onChange={() => handleCheckboxChange(entry.name)}
+                                                checked={selectedProfiles.includes(entry.username)}
+                                                onChange={() => handleCheckboxChange(entry.username)}
                                                 disabled={entry.ip !== currentIp || isDeploying}
                                                 className="mr-2"
                                             />
-                                            <span>{index + 1}. {entry.name}</span>
+                                            <span>{index + 1}. {entry.username}</span>
                                         </label>
                                         <span style={{ color: '#00f0ff' }}>{entry.score} CR</span>
                                     </div>
