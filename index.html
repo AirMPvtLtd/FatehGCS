@@ -8,7 +8,7 @@
     <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs/loader.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -245,6 +245,26 @@
             font-size: 12px;
             text-align: center;
         }
+
+        details summary {
+            cursor: pointer;
+            padding: 4px;
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid var(--primary);
+            border-radius: 4px;
+            color: var(--primary);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 12px;
+        }
+
+        details summary:hover {
+            background: rgba(0, 240, 255, 0.2);
+        }
+
+        details[open] summary {
+            background: rgba(0, 240, 255, 0.2);
+            box-shadow: 0 0 8px var(--primary);
+        }
     </style>
 </head>
 <body>
@@ -320,9 +340,9 @@
             });
 
             const containerRef = React.useRef(null);
+            const engineRef = React.useRef(null);
             const sceneRef = React.useRef(null);
             const cameraRef = React.useRef(null);
-            const rendererRef = React.useRef(null);
             const droneGroupRef = React.useRef(null);
             const editorRef = React.useRef(null);
 
@@ -550,131 +570,123 @@ def mode(pids, throttle, angles, targets, dt):
                 }
             };
 
-            // Three.js Simulation Setup with Container Check
+            // Babylon.js Simulation Setup
             React.useEffect(() => {
                 let mounted = true;
+                let retryCount = 0;
+                const maxRetries = 5;
+                const retryInterval = 200; // ms
 
                 const initializeSimulation = () => {
                     if (!mounted) return;
 
-                    console.log('Attempting to initialize Three.js simulation...');
+                    console.log(`Attempting to initialize Babylon.js simulation (Attempt ${retryCount + 1}/${maxRetries})...`);
                     console.log('Container ref:', containerRef.current);
+                    console.log('Container in DOM:', document.getElementById('simulation-container'));
 
                     if (!containerRef.current) {
-                        console.error('Simulation Error: containerRef is null');
-                        setSimulationError('Container element not found. Ensure simulation container is rendered.');
+                        if (retryCount < maxRetries) {
+                            retryCount++;
+                            console.warn(`Container not found, retrying in ${retryInterval}ms...`);
+                            setTimeout(initializeSimulation, retryInterval);
+                            return;
+                        } else {
+                            console.error('Simulation Error: containerRef is null after max retries');
+                            setSimulationError('Container element not found after multiple attempts. Please refresh the page.');
+                            return;
+                        }
+                    }
+
+                    if (!window.BABYLON) {
+                        console.error('Babylon.js library not loaded');
+                        setSimulationError('Babylon.js library failed to load. Please check your network connection.');
                         return;
                     }
 
-                    let animationFrameId;
                     try {
-                        if (!window.THREE) {
-                            throw new Error('Three.js library not loaded');
-                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.style.width = '100%';
+                        canvas.style.height = '200px';
+                        containerRef.current.appendChild(canvas);
 
-                        if (!WebGLRenderingContext || !document.createElement('canvas').getContext('webgl')) {
-                            throw new Error('WebGL not supported by this browser');
-                        }
+                        const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+                        engineRef.current = engine;
+                        console.log('Babylon.js engine initialized');
 
-                        console.log('Initializing Three.js components...');
-
-                        const scene = new THREE.Scene();
-                        scene.background = null;
+                        const scene = new BABYLON.Scene(engine);
+                        scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
                         sceneRef.current = scene;
                         console.log('Scene initialized');
 
-                        const camera = new THREE.PerspectiveCamera(
-                            75, 
-                            containerRef.current.clientWidth / 200, 
-                            0.1, 
-                            1000
+                        const camera = new BABYLON.ArcRotateCamera(
+                            'camera',
+                            -Math.PI / 2,
+                            Math.PI / 4,
+                            5,
+                            new BABYLON.Vector3(0, 0, 0),
+                            scene
                         );
-                        camera.position.set(0, 2, 5);
-                        camera.lookAt(0, 0, 0);
+                        camera.attachControl(canvas, true);
                         cameraRef.current = camera;
                         console.log('Camera initialized');
 
-                        const renderer = new THREE.WebGLRenderer({ 
-                            antialias: true, 
-                            alpha: true 
-                        });
-                        renderer.setSize(
-                            containerRef.current.clientWidth, 
-                            200
-                        );
-                        containerRef.current.appendChild(renderer.domElement);
-                        rendererRef.current = renderer;
-                        console.log('Renderer initialized and appended to DOM');
+                        const droneGroup = new BABYLON.Mesh('droneGroup', scene);
 
-                        const droneGroup = new THREE.Group();
-                        
-                        const bodyGeometry = new THREE.BoxGeometry(0.5, 0.2, 0.5);
-                        const bodyMaterial = new THREE.MeshBasicMaterial({ 
-                            color: 0x00f0ff,
-                            wireframe: true
-                        });
-                        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-                        droneGroup.add(body);
+                        const body = BABYLON.MeshBuilder.CreateBox('body', { width: 0.5, height: 0.2, depth: 0.5 }, scene);
+                        const bodyMaterial = new BABYLON.StandardMaterial('bodyMat', scene);
+                        bodyMaterial.diffuseColor = new BABYLON.Color3.FromHexString('#00f0ff');
+                        bodyMaterial.wireframe = true;
+                        body.material = bodyMaterial;
+                        body.parent = droneGroup;
                         console.log('Drone body added');
 
-                        const armGeometry = new THREE.BoxGeometry(0.8, 0.05, 0.05);
-                        const armMaterial = new THREE.MeshBasicMaterial({ 
-                            color: 0xff3e7f,
-                            wireframe: true
-                        });
-                        
                         for (let i = 0; i < 4; i++) {
-                            const arm = new THREE.Mesh(armGeometry, armMaterial);
-                            arm.position.set(
+                            const arm = BABYLON.MeshBuilder.CreateBox('arm' + i, { width: 0.8, height: 0.05, depth: 0.05 }, scene);
+                            const armMaterial = new BABYLON.StandardMaterial('armMat' + i, scene);
+                            armMaterial.diffuseColor = new BABYLON.Color3.FromHexString('#ff3e7f');
+                            armMaterial.wireframe = true;
+                            arm.material = armMaterial;
+                            arm.position = new BABYLON.Vector3(
                                 0.5 * Math.cos((i * Math.PI) / 2),
                                 0,
                                 0.5 * Math.sin((i * Math.PI) / 2)
                             );
                             arm.rotation.y = (i * Math.PI) / 2;
-                            droneGroup.add(arm);
+                            arm.parent = droneGroup;
                         }
                         console.log('Drone arms added');
 
-                        const propGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 16);
-                        const propMaterial = new THREE.MeshBasicMaterial({ 
-                            color: 0x00ff88,
-                            wireframe: true
-                        });
-                        
                         for (let i = 0; i < 4; i++) {
-                            const prop = new THREE.Mesh(propGeometry, propMaterial);
-                            prop.position.set(
+                            const prop = BABYLON.MeshBuilder.CreateCylinder('prop' + i, { diameter: 0.4, height: 0.02, tessellation: 16 }, scene);
+                            const propMaterial = new BABYLON.StandardMaterial('propMat' + i, scene);
+                            propMaterial.diffuseColor = new BABYLON.Color3.FromHexString('#00ff88');
+                            propMaterial.wireframe = true;
+                            prop.material = propMaterial;
+                            prop.position = new BABYLON.Vector3(
                                 0.7 * Math.cos((i * Math.PI) / 2),
                                 0.1,
                                 0.7 * Math.sin((i * Math.PI) / 2)
                             );
-                            droneGroup.add(prop);
+                            prop.parent = droneGroup;
                         }
                         console.log('Drone propellers added');
 
-                        scene.add(droneGroup);
                         droneGroupRef.current = droneGroup;
-                        console.log('Drone group added to scene');
+                        console.log('Drone group initialized');
 
-                        const ambientLight = new THREE.AmbientLight(0x404040);
-                        scene.add(ambientLight);
-                        console.log('Ambient light added');
-
-                        const pointLight = new THREE.PointLight(0x00f0ff, 1, 100);
-                        pointLight.position.set(5, 5, 5);
-                        scene.add(pointLight);
-                        console.log('Point light added');
+                        const light = new BABYLON.HemisphericLight('light', new BABYLON.Vector3(0, 1, 0), scene);
+                        light.intensity = 0.7;
+                        console.log('Light added');
 
                         const animate = () => {
                             if (!mounted) return;
 
                             try {
-                                if (!droneGroupRef.current || !rendererRef.current || !sceneRef.current || !cameraRef.current) {
+                                if (!droneGroupRef.current || !sceneRef.current || !engineRef.current) {
                                     console.error('Animation Error: Missing refs', {
                                         droneGroup: !!droneGroupRef.current,
-                                        renderer: !!rendererRef.current,
                                         scene: !!sceneRef.current,
-                                        camera: !!cameraRef.current
+                                        engine: !!engineRef.current
                                     });
                                     setSimulationError('Animation failed: Missing components');
                                     return;
@@ -685,59 +697,55 @@ def mode(pids, throttle, angles, targets, dt):
                                     droneGroupRef.current.rotation.z = -angles[0] * (Math.PI / 180);
                                     droneGroupRef.current.rotation.y = angles[2] * (Math.PI / 180);
                                     droneGroupRef.current.position.y = height * 0.1;
-                                    
-                                    droneGroupRef.current.children.forEach((child, index) => {
-                                        if (index >= 5) {
-                                            child.rotation.z += 0.1 * (motorSpeeds[index - 5] / 65535);
+
+                                    droneGroupRef.current.getChildMeshes().forEach((mesh, index) => {
+                                        if (mesh.name.startsWith('prop')) {
+                                            mesh.rotation.z += 0.1 * (motorSpeeds[index - 4] / 65535);
                                         }
                                     });
 
                                     simulateCode();
                                 }
-                                
-                                rendererRef.current.render(sceneRef.current, cameraRef.current);
-                                animationFrameId = requestAnimationFrame(animate);
+
+                                engineRef.current.runRenderLoop(() => {
+                                    sceneRef.current.render();
+                                });
                             } catch (error) {
                                 console.error('Animation Error:', error);
                                 setSimulationError('Animation rendering failed: ' + error.message);
-                                cancelAnimationFrame(animationFrameId);
+                                engineRef.current.stopRenderLoop();
                             }
                         };
-                        
+
                         console.log('Starting animation loop');
                         animate();
                         setSimulationError(null);
-                        
+
                         const handleResize = () => {
                             try {
-                                if (containerRef.current && cameraRef.current && rendererRef.current) {
-                                    cameraRef.current.aspect = containerRef.current.clientWidth / 200;
-                                    cameraRef.current.updateProjectionMatrix();
-                                    rendererRef.current.setSize(
-                                        containerRef.current.clientWidth, 
-                                        200
-                                    );
-                                    console.log('Renderer resized');
+                                if (containerRef.current && engineRef.current) {
+                                    engineRef.current.resize();
+                                    console.log('Engine resized');
                                 }
                             } catch (error) {
                                 console.error('Resize Error:', error);
                                 setSimulationError('Window resize handling failed: ' + error.message);
                             }
                         };
-                        
+
                         window.addEventListener('resize', handleResize);
-                        
+
                         return () => {
                             mounted = false;
                             try {
-                                console.log('Cleaning up Three.js simulation');
-                                cancelAnimationFrame(animationFrameId);
+                                console.log('Cleaning up Babylon.js simulation');
                                 window.removeEventListener('resize', handleResize);
-                                if (rendererRef.current) {
-                                    rendererRef.current.dispose();
-                                    if (containerRef.current && rendererRef.current.domElement) {
-                                        containerRef.current.removeChild(rendererRef.current.domElement);
-                                    }
+                                if (engineRef.current) {
+                                    engineRef.current.stopRenderLoop();
+                                    engineRef.current.dispose();
+                                }
+                                if (containerRef.current && canvas) {
+                                    containerRef.current.removeChild(canvas);
                                 }
                             } catch (error) {
                                 console.error('Cleanup Error:', error);
@@ -745,12 +753,11 @@ def mode(pids, throttle, angles, targets, dt):
                             }
                         };
                     } catch (error) {
-                        console.error('3D Initialization Error:', error);
+                        console.error('Babylon.js Initialization Error:', error);
                         setSimulationError('Failed to initialize 3D simulation: ' + error.message);
                     }
                 };
 
-                // Delay initialization to ensure DOM is ready
                 const timeoutId = setTimeout(initializeSimulation, 100);
 
                 return () => {
@@ -963,6 +970,7 @@ def mode(pids, throttle, angles, targets, dt):
                 
                 setStatus('Starting simulation...');
                 setIsSimulating(true);
+                setSimulationError(null); // Reset error state
                 setSimulationWarnings([]);
                 setTestResult(null);
                 setStabilityReport(null);
@@ -1463,19 +1471,123 @@ def mode(pids, throttle, angles, targets, dt):
                                     ></div>
                                     
                                     <div className="mb-4">
-                                        <label className="text-xs text-gray-400">Test Scenario</label>
-                                        <select
-                                            className="input-field"
-                                            value={selectedTestScenario}
-                                            onChange={(e) => setSelectedTestScenario(e.target.value)}
-                                        >
-                                            <option value="">Select a scenario</option>
-                                            {testScenarios.map(scenario => (
-                                                <option key={scenario.id} value={scenario.id}>
-                                                    {scenario.name}
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <details>
+                                            <summary>Test Scenarios</summary>
+                                            <select
+                                                className="input-field mt-2"
+                                                value={selectedTestScenario}
+                                                onChange={(e) => setSelectedTestScenario(e.target.value)}
+                                            >
+                                                <option value="">Select a scenario</option>
+                                                {testScenarios.map(scenario => (
+                                                    <option key={scenario.id} value={scenario.id}>
+                                                        {scenario.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </details>
+                                    </div>
+
+                                    <div className="mb-4">
+                                        <details>
+                                            <summary>Telemetry</summary>
+                                            <table className="telemetry-table mt-2">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Parameter</th>
+                                                        <th>Value</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr>
+                                                        <td>Height</td>
+                                                        <td>{height.toFixed(1)}m</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Roll</td>
+                                                        <td>{angles[0].toFixed(1)}°</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Pitch</td>
+                                                        <td>{angles[1].toFixed(1)}°</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Yaw</td>
+                                                        <td>{angles[2].toFixed(1)}°</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Throttle</td>
+                                                        <td>{throttle.toFixed(0)}%</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Motor 1</td>
+                                                        <td>{(motorSpeeds[0] / 65535 * 100).toFixed(0)}%</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Motor 2</td>
+                                                        <td>{(motorSpeeds[1] / 65535 * 100).toFixed(0)}%</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Motor 3</td>
+                                                        <td>{(motorSpeeds[2] / 65535 * 100).toFixed(0)}%</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Motor 4</td>
+                                                        <td>{(motorSpeeds[3] / 65535 * 100).toFixed(0)}%</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </details>
+                                    </div>
+
+                                    <div className="mb-4">
+                                        <details>
+                                            <summary>Controls</summary>
+                                            <div className="grid grid-cols-3 gap-2 mt-2">
+                                                <button 
+                                                    onClick={() => handleControl('Up')}
+                                                    className="cyber-button"
+                                                    disabled={isDeploying}
+                                                >
+                                                    ↑ UP
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleControl('Forward')}
+                                                    className="cyber-button"
+                                                    disabled={isDeploying}
+                                                >
+                                                    ↗ FWD
+                                                </button>
+                                                <button 
+                                                    onClick={stopSimulation}
+                                                    className="cyber-button"
+                                                    disabled={!isSimulating || isDeploying}
+                                                >
+                                                    ■ STOP
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleControl('Left')}
+                                                    className="cyber-button"
+                                                    disabled={isDeploying}
+                                                >
+                                                    ← LEFT
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleControl('Down')}
+                                                    className="cyber-button"
+                                                    disabled={isDeploying}
+                                                >
+                                                    ↓ DOWN
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleControl('Right')}
+                                                    className="cyber-button"
+                                                    disabled={isDeploying}
+                                                >
+                                                    → RIGHT
+                                                </button>
+                                            </div>
+                                        </details>
                                     </div>
 
                                     <div className="mb-4">
@@ -1534,56 +1646,6 @@ def mode(pids, throttle, angles, targets, dt):
                                         </div>
                                     </div>
 
-                                    <h4 className="text-sm mb-2" style={{ color: '#ff3e7f' }}>
-                                        Telemetry
-                                    </h4>
-                                    <table className="telemetry-table mb-4">
-                                        <thead>
-                                            <tr>
-                                                <th>Parameter</th>
-                                                <th>Value</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr>
-                                                <td>Height</td>
-                                                <td>{height.toFixed(1)}m</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Roll</td>
-                                                <td>{angles[0].toFixed(1)}°</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Pitch</td>
-                                                <td>{angles[1].toFixed(1)}°</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Yaw</td>
-                                                <td>{angles[2].toFixed(1)}°</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Throttle</td>
-                                                <td>{throttle.toFixed(0)}%</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Motor 1</td>
-                                                <td>{(motorSpeeds[0] / 65535 * 100).toFixed(0)}%</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Motor 2</td>
-                                                <td>{(motorSpeeds[1] / 65535 * 100).toFixed(0)}%</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Motor 3</td>
-                                                <td>{(motorSpeeds[2] / 65535 * 100).toFixed(0)}%</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Motor 4</td>
-                                                <td>{(motorSpeeds[3] / 65535 * 100).toFixed(0)}%</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-
                                     {simulationWarnings.length > 0 && (
                                         <div className="warning-message">
                                             <h4 className="text-sm mb-2">Warnings</h4>
@@ -1629,51 +1691,6 @@ def mode(pids, throttle, angles, targets, dt):
                                                 {isSimulating ? 'ACTIVE' : 'STANDBY'}
                                             </p>
                                         </div>
-                                    </div>
-                                    
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <button 
-                                            onClick={() => handleControl('Up')}
-                                            className="cyber-button"
-                                            disabled={isDeploying}
-                                        >
-                                            ↑ UP
-                                        </button>
-                                        <button 
-                                            onClick={() => handleControl('Forward')}
-                                            className="cyber-button"
-                                            disabled={isDeploying}
-                                        >
-                                            ↗ FWD
-                                        </button>
-                                        <button 
-                                            onClick={stopSimulation}
-                                            className="cyber-button"
-                                            disabled={!isSimulating || isDeploying}
-                                        >
-                                            ■ STOP
-                                        </button>
-                                        <button 
-                                            onClick={() => handleControl('Left')}
-                                            className="cyber-button"
-                                            disabled={isDeploying}
-                                        >
-                                            ← LEFT
-                                        </button>
-                                        <button 
-                                            onClick={() => handleControl('Down')}
-                                            className="cyber-button"
-                                            disabled={isDeploying}
-                                        >
-                                            ↓ DOWN
-                                        </button>
-                                        <button 
-                                            onClick={() => handleControl('Right')}
-                                            className="cyber-button"
-                                            disabled={isDeploying}
-                                        >
-                                            → RIGHT
-                                        </button>
                                     </div>
                                 </>
                             )}
